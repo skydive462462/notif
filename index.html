@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Patient Monitor Web Dashboard</title>
+</head>
+<body>
+    <h2>Patient Monitor Web Alert System</h2>
+    <button onclick="initializeFirebasePush()">Enable Browser Notifications</button>
+    <p><b>Your Browser Token (Copy this for Python):</b></p>
+    <textarea id="token-box" rows="4" style="width:100%;" placeholder="Click button above to generate token..."></textarea>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js"></script>
+
+    <script>
+        // Your Firebase project configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyCvsPUFjs8LxCii5L6q9JzBa9kRWvTjQnM",
+            authDomain: "notification-2f2f6.firebaseapp.com",
+            projectId: "notification-2f2f6",
+            messagingSenderId: "1039446181191",
+            appId: "1:1039446181191:web:a09ad41c24c70f7f3f3862"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const messaging = firebase.messaging();
+
+        function initializeFirebasePush() {
+            Notification.requestPermission().then((permission) => {
+                if (permission === 'granted') {
+                    console.log('Notification permission granted.');
+                    
+                    // Register the Service Worker and get the token
+                    navigator.serviceWorker.register('firebase-messaging-sw.js')
+                        .then((registration) => {
+                            messaging.getToken({
+                                vapidKey: 'BC3Ic1uoICgwj3fKglEgrxI-XIRD9kIA0NTBGSaYxj6zuNGV0YgWLsvDvSI7jiq5kyWPaSjKrJa50-NcT3bRXh0',
+                                serviceWorkerRegistration: registration
+                            }).then((currentToken) => {
+                                if (currentToken) {
+                                    document.getElementById('token-box').value = currentToken;
+                                    console.log("FCM Token:", currentToken);
+                                } else {
+                                    console.log('No registration token available.');
+                                }
+                            }).catch((err) => {
+                                console.log('An error occurred while retrieving token. ', err);
+                            });
+                        });
+                } else {
+                    alert('Permission denied for notifications.');
+                }
+            });
+        }
+
+        // Handle foreground messages when website is actively open
+        messaging.onMessage((payload) => {
+            console.log('Message received in foreground: ', payload);
+            alert("🚨 " + payload.notification.title + "\n" + payload.notification.body);
+        });
+    </script>
+</body>
+</html>
