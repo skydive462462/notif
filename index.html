@@ -2,13 +2,46 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Patient Monitor Web Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 20px auto; padding: 0 12px; }
+        #display { font-size: 64px; font-weight: bold; text-align: center; margin: 20px 0; font-variant-numeric: tabular-nums; }
+        #display.done { color: #c0392b; }
+        .row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+        input[type=number] { width: 80px; padding: 6px; font-size: 16px; }
+        button { padding: 8px 14px; font-size: 15px; cursor: pointer; }
+        textarea { width: 100%; box-sizing: border-box; }
+        #status { margin-top: 10px; color: #555; min-height: 20px; }
+    </style>
 </head>
 <body>
     <h2>Patient Monitor Web Alert System</h2>
+
     <button onclick="initializeFirebasePush()">Enable Browser Notifications</button>
     <p><b>Your Browser Token (Copy this for Python):</b></p>
-    <textarea id="token-box" rows="4" style="width:100%;" placeholder="Click button above to generate token..."></textarea>
+    <textarea id="token-box" rows="4" placeholder="Click button above to generate token..."></textarea>
+
+    <hr>
+    <h3>Countdown Timer</h3>
+    <div class="row">
+        <label>Min <input type="number" id="min" value="0" min="0"></label>
+        <label>Sec <input type="number" id="sec" value="10" min="0" max="59"></label>
+    </div>
+    <div id="display">00:10</div>
+    <div class="row">
+        <button id="startBtn" onclick="startTimer()">Start</button>
+        <button onclick="pauseTimer()">Pause</button>
+        <button onclick="resetTimer()">Reset</button>
+    </div>
+
+    <p><b>Target token (notification recipient):</b></p>
+    <textarea id="target-token" rows="3">cVRz8Wan0tUkVwKeqo9774:APA91bFqODnxDBJhgkz0HlXAOrZvHFqVgxxu1ZqrCJ0iJxqPzkMa3Pv-uQpyVf3aGXx8O7bzWjfGwoSyucNhhtg7_FHXcJznCwfzKPzFKDcSHUHf4vOiE-8</textarea>
+
+    <p><b>Optional backend URL</b> (a server that sends the FCM message to the target token):</p>
+    <input type="text" id="backend-url" style="width:100%; box-sizing:border-box; padding:6px;" placeholder="https://your-server.example.com/send-alert">
+
+    <div id="status"></div>
 
     <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
@@ -23,43 +56,142 @@
             messagingSenderId: "1039446181191",
             appId: "1:1039446181191:web:a09ad41c24c70f7f3f3862"
         };
+        const VAPID_KEY = 'BC3Ic1uoICgwj3fKglEgrxI-XIRD9kIA0NTBGSaYxj6zuNGV0YgWLsvDvSI7jiq5kyWPaSjKrJa50-NcT3bRXh0';
 
         firebase.initializeApp(firebaseConfig);
         const messaging = firebase.messaging();
 
+        function setStatus(msg) { document.getElementById('status').textContent = msg; }
+
         function initializeFirebasePush() {
             Notification.requestPermission().then((permission) => {
-                if (permission === 'granted') {
-                    console.log('Notification permission granted.');
-                    
-                    // Register the Service Worker and get the token
-                    navigator.serviceWorker.register('firebase-messaging-sw.js')
-                        .then((registration) => {
-                            messaging.getToken({
-                                vapidKey: 'BC3Ic1uoICgwj3fKglEgrxI-XIRD9kIA0NTBGSaYxj6zuNGV0YgWLsvDvSI7jiq5kyWPaSjKrJa50-NcT3bRXh0',
-                                serviceWorkerRegistration: registration
-                            }).then((currentToken) => {
-                                if (currentToken) {
-                                    document.getElementById('token-box').value = currentToken;
-                                    console.log("FCM Token:", currentToken);
-                                } else {
-                                    console.log('No registration token available.');
-                                }
-                            }).catch((err) => {
-                                console.log('An error occurred while retrieving token. ', err);
-                            });
-                        });
-                } else {
+                if (permission !== 'granted') {
                     alert('Permission denied for notifications.');
+                    return;
                 }
+                navigator.serviceWorker.register('firebase-messaging-sw.js')
+                    .then((registration) => messaging.getToken({
+                        vapidKey: VAPID_KEY,
+                        serviceWorkerRegistration: registration
+                    }))
+                    .then((currentToken) => {
+                        if (currentToken) {
+                            document.getElementById('token-box').value = currentToken;
+                            console.log("FCM Token:", currentToken);
+                            setStatus('Notifications enabled. Token generated.');
+                        } else {
+                            console.log('No registration token available.');
+                        }
+                    })
+                    .catch((err) => {
+                        console.error('Push setup failed:', err);
+                        alert('Error: ' + err.message);
+                    });
             });
         }
 
         // Handle foreground messages when website is actively open
         messaging.onMessage((payload) => {
             console.log('Message received in foreground: ', payload);
-            alert("🚨 " + payload.notification.title + "\n" + payload.notification.body);
+            const t = payload.notification ? payload.notification.title : 'Alert';
+            const b = payload.notification ? payload.notification.body : '';
+            alert("🚨 " + t + "\n" + b);
         });
+
+        // ---------- Countdown timer ----------
+        let remaining = 10;      // seconds
+        let interval = null;
+
+        function format(s) {
+            const m = Math.floor(s / 60), r = s % 60;
+            return String(m).padStart(2, '0') + ':' + String(r).padStart(2, '0');
+        }
+
+        function render() {
+            const d = document.getElementById('display');
+            d.textContent = format(remaining);
+            d.classList.toggle('done', remaining === 0);
+        }
+
+        function readInputs() {
+            const m = parseInt(document.getElementById('min').value) || 0;
+            const s = parseInt(document.getElementById('sec').value) || 0;
+            return m * 60 + s;
+        }
+
+        function startTimer() {
+            if (interval) return;
+            if (remaining <= 0) remaining = readInputs();
+            if (remaining <= 0) { setStatus('Set a time greater than 0.'); return; }
+            render();
+            setStatus('Timer running...');
+            interval = setInterval(() => {
+                remaining--;
+                render();
+                if (remaining <= 0) {
+                    clearInterval(interval);
+                    interval = null;
+                    onTimerFinished();
+                }
+            }, 1000);
+        }
+
+        function pauseTimer() {
+            clearInterval(interval);
+            interval = null;
+            setStatus('Paused.');
+        }
+
+        function resetTimer() {
+            clearInterval(interval);
+            interval = null;
+            remaining = readInputs();
+            render();
+            setStatus('');
+        }
+
+        async function onTimerFinished() {
+            const title = '⏰ Timer finished';
+            const body = 'The countdown reached 0 at ' + new Date().toLocaleTimeString();
+            setStatus('Timer reached 0. Sending notification...');
+
+            // 1) Notification on this browser, shown by the service worker
+            try {
+                if (Notification.permission !== 'granted') {
+                    await Notification.requestPermission();
+                }
+                const reg = await navigator.serviceWorker.register('firebase-messaging-sw.js');
+                await navigator.serviceWorker.ready;
+                await reg.showNotification(title, { body: body });
+                setStatus('Timer reached 0. Local notification shown.');
+            } catch (err) {
+                console.error(err);
+                setStatus('Could not show local notification: ' + err.message);
+            }
+
+            // 2) Optional: ask your backend to push to the target token via FCM
+            const url = document.getElementById('backend-url').value.trim();
+            const token = document.getElementById('target-token').value.trim();
+            if (url) {
+                try {
+                    const res = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ token: token, title: title, body: body })
+                    });
+                    setStatus('Backend responded: ' + res.status);
+                } catch (err) {
+                    console.error(err);
+                    setStatus('Backend request failed: ' + err.message);
+                }
+            }
+        }
+
+        // Keep display in sync when inputs change
+        document.getElementById('min').addEventListener('input', () => { if (!interval) { remaining = readInputs(); render(); } });
+        document.getElementById('sec').addEventListener('input', () => { if (!interval) { remaining = readInputs(); render(); } });
+        remaining = readInputs();
+        render();
     </script>
 </body>
 </html>
